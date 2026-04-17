@@ -86,6 +86,7 @@ export class DaggerheartStore extends HandlebarsApplicationMixin(ApplicationV2) 
             savePreset: DaggerheartStore.prototype._onSavePreset,
             loadPreset: DaggerheartStore.prototype._onLoadPreset,
             deletePreset: DaggerheartStore.prototype._onDeletePreset,
+            copyProfileLink: DaggerheartStore.prototype._onCopyProfileLink,
             transferFunds: DaggerheartStore.prototype._onTransferFunds,
             toggleEpic: DaggerheartStore.prototype._onToggleEpic,
             clearSearch: DaggerheartStore.prototype._onClearSearch,
@@ -2093,6 +2094,13 @@ export class DaggerheartStore extends HandlebarsApplicationMixin(ApplicationV2) 
             await game.settings.set(MODULE_ID, "currentProfile", "Default");
             this.render();
         }
+    }
+
+    async _onCopyProfileLink(event, target) {
+        const currentProfile = game.settings.get(MODULE_ID, "currentProfile") || "Default";
+        const linkText = `@Store[${currentProfile}]`;
+        await navigator.clipboard.writeText(linkText);
+        ui.notifications.info(`Copied link: ${linkText} — paste it in any journal or text field.`);
     }
 
     // --- Per-Item Toggle Actions ---
