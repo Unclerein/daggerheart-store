@@ -9,37 +9,6 @@ import { registerQueryHandlers } from "./socket.js";
 const MODULE_ID = "daggerheart-store";
 const { DialogV2 } = foundry.applications.api;
 
-// Flag to suppress intermediate re-renders while bulk-loading a profile
-let _loadingProfile = false;
-
-const PROFILE_SETTINGS_KEYS = [
-    "storeName", "priceModifier", "allowedTiers", "hiddenCategories",
-    "customCompendiums", "priceOverrides", "saleDiscount", "saleItems",
-    "hiddenItems", "blockedSaleItems", "blockedPurchaseItems", "lockedItems",
-    "epicItems", "epicIcon", "epicColor", "epicLabel", "epicEffect",
-    "partyActorId", "customTabName", "customTabCompendiums", "customTabTierGroup",
-    "useDefaultCompendiums", "sellRatio", "stockEnabled", "showStockQuantity",
-    "randomizerSettings", "vendorName", "vendorDescription", "vendorImage",
-    "vendorRelationships", "vendorRelationLevels"
-];
-
-const DEFAULT_PROFILE_DATA = {
-    storeName: "Daggerheart: Store", priceModifier: 100,
-    allowedTiers: {}, hiddenCategories: {}, customCompendiums: [],
-    priceOverrides: {}, saleDiscount: 10, saleItems: {},
-    hiddenItems: {}, blockedSaleItems: {}, blockedPurchaseItems: {},
-    lockedItems: {}, epicItems: {}, epicIcon: "fa-star",
-    epicColor: "#9b59b6", epicLabel: "Epic", epicEffect: "shine",
-    partyActorId: "", customTabName: "General",
-    customTabCompendiums: ["daggerheart-store.general-items"],
-    customTabTierGroup: true, useDefaultCompendiums: true,
-    sellRatio: 0.5, stockEnabled: false, showStockQuantity: true,
-    randomizerSettings: {},
-    vendorName: "", vendorDescription: "", vendorImage: "",
-    vendorRelationships: {},
-    vendorRelationLevels: { "-2": 25, "-1": 10, "0": 0, "1": 10, "2": 25 }
-};
-
 Hooks.once("init", () => {
     // --- CUSTOM TEXT ENRICHER ---
     // Syntax: @Store[ProfileName] or @Store[ProfileName|Custom Label]
@@ -462,48 +431,21 @@ Hooks.once("ready", async () => {
         const link = event.target.closest("a.store-profile-link");
         if (!link) return;
         event.preventDefault();
-        event.stopPropagation();
 
         const profileName = link.dataset.profile;
+        const app = getStoreInstance();
 
         if (game.user.isGM && profileName) {
-            const profiles = game.settings.get(MODULE_ID, "storeProfiles");
-            const profileData = profileName === "Default"
-                ? foundry.utils.deepClone(DEFAULT_PROFILE_DATA)
-                : foundry.utils.deepClone(profiles[profileName]);
-
-            if (!profileData) {
-                ui.notifications.warn(`Store profile "${profileName}" not found.`);
-            } else {
-                // Suppress intermediate re-renders during bulk setting updates
-                _loadingProfile = true;
-                try {
-                    if (!profileData.customTabCompendiums && profileData.customTabCompendium) {
-                        profileData.customTabCompendiums = [profileData.customTabCompendium];
-                    }
-                    for (const key of PROFILE_SETTINGS_KEYS) {
-                        if (Object.prototype.hasOwnProperty.call(profileData, key)) {
-                            await game.settings.set(MODULE_ID, key, profileData[key]);
-                        }
-                    }
-                    await game.settings.set(MODULE_ID, "currentProfile", profileName);
-                    await StockManager.initializeStockData();
-                } finally {
-                    _loadingProfile = false;
-                }
-            }
+            await app.applyProfile(profileName);
+        } else {
+            app.render({ force: true });
+            if (app.minimized) app.maximize();
+            app.bringToFront();
         }
-
-        // Open (or re-render) the store with the now-active profile
-        const app = getStoreInstance();
-        app.render({ force: true });
-        if (app.minimized) app.maximize();
-        app.bringToFront();
     });
 });
 
 Hooks.on("updateSetting", (setting) => {
-    if (_loadingProfile) return;
     if (setting.key.startsWith(MODULE_ID) && setting.key !== `${MODULE_ID}.openStoreRequest`) {
         if (storeInstance && storeInstance.rendered) {
             if (setting.key === `${MODULE_ID}.storeName`) {

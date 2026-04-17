@@ -2103,6 +2103,66 @@ export class DaggerheartStore extends HandlebarsApplicationMixin(ApplicationV2) 
         ui.notifications.info(`Copied link: ${linkText} — paste it in any journal or text field.`);
     }
 
+    /**
+     * Loads a named profile and opens/refreshes the store — same as _onLoadPreset but without dialog.
+     */
+    async applyProfile(profileName) {
+        let profileData;
+        if (profileName === "Default") {
+            profileData = {
+                storeName: "Daggerheart: Store", priceModifier: 100,
+                allowedTiers: {}, hiddenCategories: {}, customCompendiums: [],
+                priceOverrides: {}, saleDiscount: 10, saleItems: {},
+                hiddenItems: {}, blockedSaleItems: {}, blockedPurchaseItems: {},
+                lockedItems: {}, epicItems: {}, epicIcon: "fa-star",
+                epicColor: "#9b59b6", epicLabel: "Epic", epicEffect: "shine",
+                partyActorId: "", customTabName: "General",
+                customTabCompendiums: ["daggerheart-store.general-items"],
+                customTabTierGroup: true, useDefaultCompendiums: true,
+                sellRatio: 0.5, stockEnabled: false, showStockQuantity: true,
+                randomizerSettings: {},
+                vendorName: "", vendorDescription: "", vendorImage: "",
+                vendorRelationships: {},
+                vendorRelationLevels: { "-2": 25, "-1": 10, "0": 0, "1": 10, "2": 25 }
+            };
+        } else {
+            const profiles = game.settings.get(MODULE_ID, "storeProfiles");
+            profileData = profiles[profileName];
+            if (!profileData) {
+                ui.notifications.warn(`Store profile "${profileName}" not found.`);
+                this.render({ force: true });
+                if (this.minimized) this.maximize();
+                this.bringToFront();
+                return;
+            }
+        }
+
+        if (!profileData.customTabCompendiums && profileData.customTabCompendium) {
+            profileData.customTabCompendiums = [profileData.customTabCompendium];
+        }
+
+        const settingsToUpdate = [
+            "storeName", "priceModifier", "allowedTiers", "hiddenCategories",
+            "customCompendiums", "priceOverrides", "saleDiscount", "saleItems",
+            "hiddenItems", "blockedSaleItems", "blockedPurchaseItems", "lockedItems",
+            "epicItems", "epicIcon", "epicColor", "epicLabel", "epicEffect",
+            "partyActorId", "customTabName", "customTabCompendiums", "customTabTierGroup",
+            "useDefaultCompendiums", "sellRatio", "stockEnabled", "showStockQuantity", "randomizerSettings",
+            "vendorName", "vendorDescription", "vendorImage", "vendorRelationships", "vendorRelationLevels"
+        ];
+
+        for (const key of settingsToUpdate) {
+            if (profileData.hasOwnProperty(key)) await game.settings.set(MODULE_ID, key, profileData[key]);
+        }
+        await game.settings.set(MODULE_ID, "currentProfile", profileName);
+
+        if (game.user.isGM) await StockManager.initializeStockData();
+
+        this.render({ force: true });
+        if (this.minimized) this.maximize();
+        this.bringToFront();
+    }
+
     // --- Per-Item Toggle Actions ---
 
     async _onPriceOverrideChange(event) {
