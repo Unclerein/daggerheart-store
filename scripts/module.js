@@ -9,74 +9,48 @@ import { registerQueryHandlers } from "./socket.js";
 const MODULE_ID = "daggerheart-store";
 const { DialogV2 } = foundry.applications.api;
 
-/**
- * Loads a store profile by name, applying all its settings without confirmation.
- * Mirrors the logic in DaggerheartStore._onLoadPreset but skips the dialog.
- */
-async function _loadStoreProfile(profileName) {
-    const profiles = game.settings.get(MODULE_ID, "storeProfiles");
-    let profileData;
-    if (profileName === "Default") {
-        profileData = {
-            storeName: "Daggerheart: Store", priceModifier: 100,
-            allowedTiers: {}, hiddenCategories: {}, customCompendiums: [],
-            priceOverrides: {}, saleDiscount: 10, saleItems: {},
-            hiddenItems: {}, blockedSaleItems: {}, blockedPurchaseItems: {},
-            lockedItems: {}, epicItems: {}, epicIcon: "fa-star",
-            epicColor: "#9b59b6", epicLabel: "Epic", epicEffect: "shine",
-            partyActorId: "", customTabName: "General",
-            customTabCompendiums: ["daggerheart-store.general-items"],
-            customTabTierGroup: true, useDefaultCompendiums: true,
-            sellRatio: 0.5, stockEnabled: false, showStockQuantity: true,
-            randomizerSettings: {},
-            vendorName: "", vendorDescription: "", vendorImage: "",
-            vendorRelationships: {},
-            vendorRelationLevels: { "-2": 25, "-1": 10, "0": 0, "1": 10, "2": 25 }
-        };
-    } else {
-        profileData = profiles[profileName];
-        if (!profileData) {
-            ui.notifications.warn(`Store profile "${profileName}" not found.`);
-            return false;
-        }
-    }
+// Flag to suppress intermediate re-renders while bulk-loading a profile
+let _loadingProfile = false;
 
-    const settingsToUpdate = [
-        "storeName", "priceModifier", "allowedTiers", "hiddenCategories",
-        "customCompendiums", "priceOverrides", "saleDiscount", "saleItems",
-        "hiddenItems", "blockedSaleItems", "blockedPurchaseItems", "lockedItems",
-        "epicItems", "epicIcon", "epicColor", "epicLabel", "epicEffect",
-        "partyActorId", "customTabName", "customTabCompendiums", "customTabTierGroup",
-        "useDefaultCompendiums", "sellRatio", "stockEnabled", "showStockQuantity",
-        "randomizerSettings", "vendorName", "vendorDescription", "vendorImage",
-        "vendorRelationships", "vendorRelationLevels"
-    ];
+const PROFILE_SETTINGS_KEYS = [
+    "storeName", "priceModifier", "allowedTiers", "hiddenCategories",
+    "customCompendiums", "priceOverrides", "saleDiscount", "saleItems",
+    "hiddenItems", "blockedSaleItems", "blockedPurchaseItems", "lockedItems",
+    "epicItems", "epicIcon", "epicColor", "epicLabel", "epicEffect",
+    "partyActorId", "customTabName", "customTabCompendiums", "customTabTierGroup",
+    "useDefaultCompendiums", "sellRatio", "stockEnabled", "showStockQuantity",
+    "randomizerSettings", "vendorName", "vendorDescription", "vendorImage",
+    "vendorRelationships", "vendorRelationLevels"
+];
 
-    if (!profileData.customTabCompendiums && profileData.customTabCompendium) {
-        profileData.customTabCompendiums = [profileData.customTabCompendium];
-    }
-
-    for (const key of settingsToUpdate) {
-        if (Object.prototype.hasOwnProperty.call(profileData, key)) {
-            await game.settings.set(MODULE_ID, key, profileData[key]);
-        }
-    }
-    await game.settings.set(MODULE_ID, "currentProfile", profileName);
-    await StockManager.initializeStockData();
-    return true;
-}
+const DEFAULT_PROFILE_DATA = {
+    storeName: "Daggerheart: Store", priceModifier: 100,
+    allowedTiers: {}, hiddenCategories: {}, customCompendiums: [],
+    priceOverrides: {}, saleDiscount: 10, saleItems: {},
+    hiddenItems: {}, blockedSaleItems: {}, blockedPurchaseItems: {},
+    lockedItems: {}, epicItems: {}, epicIcon: "fa-star",
+    epicColor: "#9b59b6", epicLabel: "Epic", epicEffect: "shine",
+    partyActorId: "", customTabName: "General",
+    customTabCompendiums: ["daggerheart-store.general-items"],
+    customTabTierGroup: true, useDefaultCompendiums: true,
+    sellRatio: 0.5, stockEnabled: false, showStockQuantity: true,
+    randomizerSettings: {},
+    vendorName: "", vendorDescription: "", vendorImage: "",
+    vendorRelationships: {},
+    vendorRelationLevels: { "-2": 25, "-1": 10, "0": 0, "1": 10, "2": 25 }
+};
 
 Hooks.once("init", () => {
     // --- CUSTOM TEXT ENRICHER ---
     // Syntax: @Store[ProfileName] or @Store[ProfileName|Custom Label]
-    // Produces a clickable link that opens the store, loading the named profile for GMs.
+    // Produces a clickable link that opens the store with the named profile.
     CONFIG.TextEditor.enrichers.push({
         pattern: /@Store\[([^\]|]+)(?:\|([^\]]*))?\]/gi,
         enricher: async (match, options) => {
             const profileName = match[1].trim();
             const label = match[2]?.trim() || profileName;
             const a = document.createElement("a");
-            a.classList.add("content-link", "store-profile-link");
+            a.classList.add("store-profile-link");
             a.dataset.profile = profileName;
             a.draggable = false;
             a.innerHTML = `<i class="fas fa-store"></i> ${label}`;
@@ -488,15 +462,48 @@ Hooks.once("ready", async () => {
         const link = event.target.closest("a.store-profile-link");
         if (!link) return;
         event.preventDefault();
+        event.stopPropagation();
+
         const profileName = link.dataset.profile;
+
         if (game.user.isGM && profileName) {
-            await _loadStoreProfile(profileName);
+            const profiles = game.settings.get(MODULE_ID, "storeProfiles");
+            const profileData = profileName === "Default"
+                ? foundry.utils.deepClone(DEFAULT_PROFILE_DATA)
+                : foundry.utils.deepClone(profiles[profileName]);
+
+            if (!profileData) {
+                ui.notifications.warn(`Store profile "${profileName}" not found.`);
+            } else {
+                // Suppress intermediate re-renders during bulk setting updates
+                _loadingProfile = true;
+                try {
+                    if (!profileData.customTabCompendiums && profileData.customTabCompendium) {
+                        profileData.customTabCompendiums = [profileData.customTabCompendium];
+                    }
+                    for (const key of PROFILE_SETTINGS_KEYS) {
+                        if (Object.prototype.hasOwnProperty.call(profileData, key)) {
+                            await game.settings.set(MODULE_ID, key, profileData[key]);
+                        }
+                    }
+                    await game.settings.set(MODULE_ID, "currentProfile", profileName);
+                    await StockManager.initializeStockData();
+                } finally {
+                    _loadingProfile = false;
+                }
+            }
         }
-        globalThis.Store?.Open();
+
+        // Open (or re-render) the store with the now-active profile
+        const app = getStoreInstance();
+        app.render({ force: true });
+        if (app.minimized) app.maximize();
+        app.bringToFront();
     });
 });
 
 Hooks.on("updateSetting", (setting) => {
+    if (_loadingProfile) return;
     if (setting.key.startsWith(MODULE_ID) && setting.key !== `${MODULE_ID}.openStoreRequest`) {
         if (storeInstance && storeInstance.rendered) {
             if (setting.key === `${MODULE_ID}.storeName`) {
