@@ -20,7 +20,9 @@ Hooks.once("init", () => {
             const label = match[2]?.trim() || profileName;
             const a = document.createElement("a");
             a.classList.add("store-profile-link");
-            a.dataset.profile = profileName;
+            // data-id is a standard Foundry attribute, guaranteed to survive sanitization
+            a.dataset.id = profileName;
+            a.dataset.profile = profileName; // redundant fallback
             a.draggable = false;
             a.innerHTML = `<i class="fas fa-store"></i> ${label}`;
             return a;
@@ -432,7 +434,8 @@ Hooks.once("ready", async () => {
         if (!link) return;
         event.preventDefault();
 
-        const profileName = link.dataset.profile;
+        // data-id is a standard Foundry attribute; data-profile is our custom fallback
+        const profileName = link.dataset.id || link.dataset.profile;
         const app = getStoreInstance();
 
         if (game.user.isGM && profileName) {
